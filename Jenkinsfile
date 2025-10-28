@@ -60,12 +60,12 @@ pipeline {
     stage('Manual Switch') {
       steps {
         input message: "Switch traffic to GREEN ${BUILD_NUMBER}?"
-        echo "Switching service selector to color=green"
-        sh 'kubectl patch service myapp-service -p "{\"spec\":{\"selector\":{\"app\":\"myapp\",\"color\":\"green\"}}}"'
+        echo "Switching service selector to color=${COLOR}"
+    // This is a Groovy double-quoted string: ${COLOR} will be expanded by Jenkins
+        sh "kubectl patch service myapp-service --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"myapp\",\"color\":\"${COLOR}\"}}}'"
         sh "kubectl get svc myapp-service -o yaml"
       }
     }
-  }
 
   post {
     success {
