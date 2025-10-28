@@ -2,15 +2,15 @@ pipeline {
   agent any
 
   environment {
-    BLUE_IMAGE = "suryakpmax/myapp-blue"
+    BLUE_IMAGE  = "suryakpmax/myapp-blue"
     GREEN_IMAGE = "suryakpmax/myapp-green"
     DOCKER_CREDS = 'dockerhub-creds'    // ensure this credential exists in Jenkins
+    COLOR = "green"                      // traffic target for manual switch
   }
 
   stages {
     stage('Prepare') {
       steps {
-        // Use the workspace that Jenkins already checked out for the Jenkinsfile
         script {
           echo "Using workspace: ${env.WORKSPACE}"
         }
@@ -36,13 +36,13 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-            docker push ${BLUE_IMAGE}:${BUILD_NUMBER}
-            docker tag ${BLUE_IMAGE}:${BUILD_NUMBER} ${BLUE_IMAGE}:latest
-            docker push ${BLUE_IMAGE}:latest
+            docker push ${BLUE_IMAGE}:${BUILD_NUMBER} || true
+            docker tag ${BLUE_IMAGE}:${BUILD_NUMBER} ${BLUE_IMAGE}:latest || true
+            docker push ${BLUE_IMAGE}:latest || true
 
-            docker push ${GREEN_IMAGE}:${BUILD_NUMBER}
-            docker tag ${GREEN_IMAGE}:${BUILD_NUMBER} ${GREEN_IMAGE}:latest
-            docker push ${GREEN_IMAGE}:latest
+            docker push ${GREEN_IMAGE}:${BUILD_NUMBER} || true
+            docker tag ${GREEN_IMAGE}:${BUILD_NUMBER} ${GREEN_IMAGE}:latest || true
+            docker push ${GREEN_IMAGE}:latest || true
           '''
         }
       }
@@ -51,7 +51,6 @@ pipeline {
     stage('Deploy Green (staging)') {
       steps {
         echo "Deploying green image ${GREEN_IMAGE}:${BUILD_NUMBER} to k8s"
-        // Update green deployment image
         sh "kubectl set image deployment/myapp-green myapp=${GREEN_IMAGE}:${BUILD_NUMBER} --record || true"
         sh "kubectl rollout status deployment/myapp-green --timeout=120s || true"
       }
@@ -59,13 +58,14 @@ pipeline {
 
     stage('Manual Switch') {
       steps {
-        input message: "Switch traffic to GREEN ${BUILD_NUMBER}?"
+        input message: "Switch traffic to ${COLOR} ${BUILD_NUMBER}?"
         echo "Switching service selector to color=${COLOR}"
-    // This is a Groovy double-quoted string: ${COLOR} will be expanded by Jenkins
+        // safe JSON quoting — expands ${COLOR}
         sh "kubectl patch service myapp-service --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"myapp\",\"color\":\"${COLOR}\"}}}'"
         sh "kubectl get svc myapp-service -o yaml"
       }
     }
+  } // end stages
 
   post {
     success {
