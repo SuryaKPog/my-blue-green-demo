@@ -1,0 +1,91 @@
+- hosts: jenkins
+  become: true
+  vars:
+    kubeconfig_local_path: ../ansible/kubeconfig_k3s
+    jenkins_kube_dir: /var/lib/jenkins/.kube
+    swap_file: /swapfile1
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - openjdk-11-jdk
+          - docker.io
+          - git
+          - maven
+          - curl
+        state: present
+
+    - name: Ensure docker service is started
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add jenkins apt repo key
+      apt_key:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io.key
+        state: present
+
+    - name: Add Jenkins apt repository
+      apt_repository:
+        repo: 'deb https://pkg.jenkins.io/debian-stable binary/'
+        state: present
+
+    - name: Install Jenkins
+      apt:
+        name: jenkins
+        state: present
+        update_cache: yes
+
+    - name: Start Jenkins
+      service:
+        name: jenkins
+        state: started
+        enabled: yes
+
+    - name: Ensure jenkins user is in docker group
+      user:
+        name: jenkins
+        groups: docker
+        append: yes
+
+    - name: Create Jenkins kube dir
+      file:
+        path: "{{ jenkins_kube_dir }}"
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: '0755'
+
+    - name: Create swap file (1G) if not exists
+      command: |
+        fallocate -l 1G {{ swap_file }} && chmod 600 {{ swap_file }} && mkswap {{ swap_file }} && swapon {{ swap_file }}
+      args:
+        creates: "{{ swap_file }}"
+
+    - name: Install kubectl (download stable release)
+      shell: |
+        curl -L -s https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+      args:
+        creates: /usr/local/bin/kubectl
+
+    - name: Copy kubeconfig from control to Jenkins (control->remote)
+      copy:
+        src: "{{ kubeconfig_local_path }}"
+        dest: "{{ jenkins_kube_dir }}/config"
+        owner: jenkins
+        group: jenkins
+        mode: '0644'
+      delegate_to: localhost
+      run_once: true
+
+    - name: Ensure /usr/local/bin/kubectl exists for jenkins user
+      command: /usr/local/bin/kubectl version --client
+      register: kubectl_check
+      failed_when: kubectl_check.rc != 0
+

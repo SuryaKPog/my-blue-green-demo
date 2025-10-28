@@ -1,0 +1,38 @@
+- hosts: jenkins
+  gather_facts: no
+  tasks:
+    - name: Check host kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ lookup('env','HOME') }}/.kube/config"
+      register: kubeconf
+    - name: Fail if kubeconfig missing
+      ansible.builtin.fail:
+        msg: "Host kubeconfig not found at ~/.kube/config"
+      when: not kubeconf.stat.exists
+
+    - name: Create .kube dir in jenkins container
+      ansible.builtin.command:
+        cmd: docker exec jenkins bash -lc "mkdir -p /var/jenkins_home/.kube && chown -R 1000:1000 /var/jenkins_home/.kube"
+      changed_when: true
+
+    - name: Copy kubeconfig into jenkins container via docker cp
+      ansible.builtin.command:
+        cmd: docker cp {{ lookup('env','HOME') }}/.kube/config jenkins:/var/jenkins_home/.kube/config
+      changed_when: true
+
+    - name: Install curl & ca-certificates inside jenkins as root
+      ansible.builtin.command:
+        cmd: docker exec -u 0 jenkins bash -lc "apt-get update -y && apt-get install -y curl ca-certificates"
+      changed_when: true
+
+    - name: Download kubectl inside jenkins and install
+      ansible.builtin.command:
+        cmd: docker exec -u 0 jenkins bash -lc "curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm -f kubectl"
+      changed_when: true
+
+    - name: Verify kubectl client inside jenkins
+      ansible.builtin.command:
+        cmd: docker exec jenkins kubectl version --client || true
+      register: kubectl_ver
+    - debug:
+        var: kubectl_ver.stdout_lines

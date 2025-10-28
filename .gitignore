@@ -1,0 +1,12 @@
+node_modules/
+jenkins_home/
+*.log
+.vscode/
+.DS_Store
+
+# terraform
+terraform/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl

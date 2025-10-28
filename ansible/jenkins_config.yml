@@ -1,0 +1,28 @@
+- hosts: jenkins
+  gather_facts: no
+  tasks:
+    - name: Ensure community.docker is available (no-op if already installed)
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection install community.docker
+      changed_when: false
+      ignore_errors: true
+
+    - name: Copy host kubeconfig into Jenkins container home
+      community.docker.docker_cp:
+        src: "{{ lookup('env','HOME') }}/.kube/config"
+        dest: /var/jenkins_home/.kube/config
+        container: jenkins
+        remote_src: false
+
+    - name: Install kubectl inside Jenkins container
+      community.docker.docker_container_exec:
+        container: jenkins
+        command: >
+          bash -lc "apt-get update -y && apt-get install -y curl ca-certificates || true &&
+          curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl || true &&
+          install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl || true && rm -f kubectl || true"
+
+    - name: Verify kubectl client inside jenkins
+      community.docker.docker_container_exec:
+        container: jenkins
+        command: kubectl version --client --short || true

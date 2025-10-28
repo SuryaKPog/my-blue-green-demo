@@ -1,0 +1,41 @@
+- hosts: k3s
+  become: true
+  vars:
+    kubeconfig_remote: /etc/rancher/k3s/k3s.yaml
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Ensure curl exists
+      apt:
+        name: curl
+        state: present
+
+    - name: Install k3s (server)
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="latest" sh -s - --write-kubeconfig-mode 644
+      args:
+        creates: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait for kubeconfig file to appear
+      wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        timeout: 120
+
+    - name: Wait for node to be Ready
+      shell: kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get nodes --no-headers -o custom-columns=STATUS:.status.conditions[-1:].type
+      register: node_check
+      retries: 10
+      delay: 6
+      until: "'Ready' in node_check.stdout"
+
+    - name: Slurp kubeconfig (copy to control)
+      slurp:
+        src: "{{ kubeconfig_remote }}"
+      register: kubecfg_b64
+
+    - name: Write kubeconfig to control machine
+      local_action: copy content="{{ kubecfg_b64.content | b64decode }}" dest="./kubeconfig_k3s"
+
